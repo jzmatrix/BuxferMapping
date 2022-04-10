@@ -4,12 +4,7 @@ use Data::Dumper;
 use Date::Parse;
 use DBI;			# libdbd-mysql-perl / libdbi-perl
 use Digest::MD5;
-use Crypt::Digest;
-################################################################################
-&readConfig;
-################################################################################
-&dbInit;
-&sqlInit;
+use Crypt::Digest;	# libcryptx-perl
 ################################################################################
 $mapData;
 $transData;
@@ -18,6 +13,15 @@ $transCache;
 @acntList;
 $acntCache;
 $amntCache;
+################################################################################
+&readConfig;
+################################################################################
+# print "**********************************************\n";
+# print "CONFIG :: " . Dumper($config) . "\n";
+# print "**********************************************\n";
+################################################################################
+&dbInit;
+&sqlInit;
 ################################################################################
 if ($getMappingData->execute())
 {
@@ -28,7 +32,7 @@ if ($getMappingData->execute())
 		##########
 		#if ($mapString =~ 'AT&T')
 		#{
-		print "MAPPING :: $accountID :: $mapString :: $expectedAmount\n";
+		# print "MAPPING :: $accountID :: $mapString :: $expectedAmount\n";
 		#}
 		##########
 		#$amntCache->{$accountID}{$mapString} = $expectedAmount;
@@ -40,9 +44,9 @@ if ($getMappingData->execute())
 		}
 	}
 }
+################################################################################
 if ($getTransactionData->execute())
 {
-
 	while (my ($aid, $fid, $transDate, $transDateEpoch, $transDesc, $transAmount) = $getTransactionData->fetchrow_array())
 	{
 		my $itemKey = $aid . "_" . $fid;
@@ -53,7 +57,7 @@ if ($getTransactionData->execute())
 		$transID{$itemKey}{'transDesc'} = $transDesc;
 		$transID{$itemKey}{'transAmount'} = sprintf('%.2f', $transAmount);
 		#########
-		print "\tLOAD :: $itemKey :: $transAmount :: " . $transID{$itemKey}{'transAmount'} . "\n";
+		print "\tLOAD :: $itemKey :: $transDesc :: $transAmount :: " . $transID{$itemKey}{'transAmount'} . "\n";
 		#########
 		#push(@mapData->{$accountID}, $mapString);
 		my $chk = $transCache{$itemKey};
@@ -63,13 +67,11 @@ if ($getTransactionData->execute())
 			push(@transList, $itemKey);
 		}
 	}
-	# exit;
 }
 ################################################################################
 foreach (@acntList)
 {
 	my $curAcnt = $_;
-	print "ACNT :: $curAcnt\n";
 	my $doCheck = 1;
 	# if ($curAcnt eq "6378-ee8a-e0c4-9544-2843-db87-80e0-268b-1e1b-9e96") { $doCheck = 1;}
 	if ($doCheck)
@@ -77,6 +79,8 @@ foreach (@acntList)
 		foreach (@{$mapData{$curAcnt}})
 		{
 			my $mapCheck = $_;
+			##########
+			print "ACNT :: $curAcnt :: $mapCheck\n";
 			##########
 			# $mapCheck =~ s/\*/\\\*/g;
 			##########
@@ -146,11 +150,12 @@ foreach (@acntList)
 						}
 						else
 						{
-							# print "*** NOT Valid Entry :: $validMap :: ($transDesc =~ $mapCheck) || ($transAmount == $expectAmount)\n";
+							print "*** NOT Valid Entry :: $validMap :: ($transDesc =~ $mapCheck) || ($transAmount == $expectAmount)\n";
 						}
 					}
 				}
 			}
+			print "-----------------------------------------------------------------\n";
 		}
 	}
 }
@@ -216,7 +221,25 @@ sub sqlInit
 		print "Unable to prepare :: $getMappingData_SQL\n";
 		exit;
 	}
-	$getTransactionData_SQL = "SELECT AccountID, FID, transDate, transDateEpoch, transDesc, transAmount FROM zhBudget.TransData WHERE debtAccount IS NULL AND (month(from_unixtime(TransDateEpoch)) = month(now()) AND year(from_unixtime(TransDateEpoch)) = year(now())) AND TransType != 'DIRECTDEP: Direct deposit' AND TransType != 'XFER: Transfer'  AND accountID LIKE '%3951' ORDER BY transDateEpoch DESC";
+	# $getTransactionData_SQL = "SELECT AccountID, FID, transDate, transDateEpoch, transDesc, transAmount FROM zhBudget.TransData WHERE debtAccount IS NULL AND (month(from_unixtime(TransDateEpoch)) = month(now()) AND year(from_unixtime(TransDateEpoch)) = year(now())) AND TransType != 'DIRECTDEP: Direct deposit' AND TransType != 'XFER: Transfer'  AND accountID LIKE '%3951' ORDER BY transDateEpoch DESC";
+	$getTransactionData_SQL = "SELECT
+									transAccountID as AID,
+									transID as FID,
+									transDate,
+									unix_timestamp(transDate) as transDateEpoch,
+									transDescription as transDesc,
+									transAmount,
+									transTags,
+									transType
+								FROM
+									buxfer.Transactions
+								WHERE
+									(month(transDate) = month(now()) AND year(transDate) = year(now())) AND
+									transAccountID = '1320697' AND
+									transPending = 0 AND
+									transStatus = 'cleared'
+								ORDER BY
+									unix_timestamp(transDate)  DESC";
 	if (!($getTransactionData = $dbh->prepare($getTransactionData_SQL)))
 	{
 		print "Unable to prepare :: $getTransactionData_SQL\n";
@@ -228,18 +251,18 @@ sub sqlInit
 		print "Unable to prepare :: $checkPaymentExist_SQL\n";
 		exit;
 	}
-	$insertPaymentData_SQL = "INSERT INTO BucketTracker.AccountMonthlyPayments (accountID, payAmount, payDate, payID) VALUES (?,?,?,?)";
-	if (!($insertPaymentData = $dbh->prepare($insertPaymentData_SQL)))
-	{
-		print "Unable to prepare :: $insertPaymentData_SQL\n";
-		exit;
-	}
-	$updatePaymentMapping_SQL = "UPDATE zhBudget.TransData SET debtAccount = ?, debtMatch = NOW() WHERE AccountID = ? AND FID = ?";
-	if (!($updatePaymentMapping = $dbh->prepare($updatePaymentMapping_SQL)))
-	{
-		print "Unable to prepare :: $updatePaymentMapping_SQL\n";
-		exit;
-	}
+ 	$insertPaymentData_SQL = "INSERT INTO BucketTracker.AccountMonthlyPayments (accountID, payAmount, payDate, payID) VALUES (?,?,?,?)";
+ 	if (!($insertPaymentData = $dbh->prepare($insertPaymentData_SQL)))
+ 	{
+ 		print "Unable to prepare :: $insertPaymentData_SQL\n";
+ 		exit;
+ 	}
+ 	$updatePaymentMapping_SQL = "UPDATE zhBudget.TransData SET debtAccount = ?, debtMatch = NOW() WHERE AccountID = ? AND FID = ?";
+ 	if (!($updatePaymentMapping = $dbh->prepare($updatePaymentMapping_SQL)))
+ 	{
+ 		print "Unable to prepare :: $updatePaymentMapping_SQL\n";
+ 		exit;
+ 	}
 }
 ################################################################################
 sub dbInit
@@ -271,6 +294,7 @@ sub readConfig
     	my $configKey = $_;
     	open(IN, "/config/" . $configKey);
     	my $configValue = <IN>;
+		chomp $configValue;
     	close (IN);
     	$config->{$configKey} = $configValue;
 	}
