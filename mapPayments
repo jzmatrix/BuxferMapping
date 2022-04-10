@@ -1,0 +1,277 @@
+#!/usr/bin/perl
+################################################################################
+use Data::Dumper;
+use Date::Parse;
+use DBI;			# libdbd-mysql-perl / libdbi-perl
+use Digest::MD5;
+use Crypt::Digest;
+################################################################################
+&readConfig;
+################################################################################
+&dbInit;
+&sqlInit;
+################################################################################
+$mapData;
+$transData;
+$transCache;
+@transList;
+@acntList;
+$acntCache;
+$amntCache;
+################################################################################
+if ($getMappingData->execute())
+{
+	while (my ($accountID, $mapString, $expectedAmount) = $getMappingData->fetchrow_array())
+	{
+		push(@{$mapData{$accountID}}, $mapString);
+		push(@{$amntCache->{$accountID}{$mapString}}, $expectedAmount);
+		##########
+		#if ($mapString =~ 'AT&T')
+		#{
+		print "MAPPING :: $accountID :: $mapString :: $expectedAmount\n";
+		#}
+		##########
+		#$amntCache->{$accountID}{$mapString} = $expectedAmount;
+		my $chk = $acntCache->{$accountID};
+		if (!$chk)
+		{
+			push(@acntList, $accountID);
+			$acntCache->{$accountID} = 1;
+		}
+	}
+}
+if ($getTransactionData->execute())
+{
+
+	while (my ($aid, $fid, $transDate, $transDateEpoch, $transDesc, $transAmount) = $getTransactionData->fetchrow_array())
+	{
+		my $itemKey = $aid . "_" . $fid;
+		$transID{$itemKey}{'transDate'} = $transDate;
+		$transID{$itemKey}{'AID'} = $aid;
+		$transID{$itemKey}{'FID'} = $fid;
+		$transID{$itemKey}{'transDateEpoch'} = $transDateEpoch;
+		$transID{$itemKey}{'transDesc'} = $transDesc;
+		$transID{$itemKey}{'transAmount'} = sprintf('%.2f', $transAmount);
+		#########
+		print "\tLOAD :: $itemKey :: $transAmount :: " . $transID{$itemKey}{'transAmount'} . "\n";
+		#########
+		#push(@mapData->{$accountID}, $mapString);
+		my $chk = $transCache{$itemKey};
+		if (!$chk)
+		{
+			$transCache{$itemKey} = 1;
+			push(@transList, $itemKey);
+		}
+	}
+	# exit;
+}
+################################################################################
+foreach (@acntList)
+{
+	my $curAcnt = $_;
+	print "ACNT :: $curAcnt\n";
+	my $doCheck = 1;
+	# if ($curAcnt eq "6378-ee8a-e0c4-9544-2843-db87-80e0-268b-1e1b-9e96") { $doCheck = 1;}
+	if ($doCheck)
+	{
+		foreach (@{$mapData{$curAcnt}})
+		{
+			my $mapCheck = $_;
+			##########
+			# $mapCheck =~ s/\*/\\\*/g;
+			##########
+			foreach (@transList)
+			{
+				my $tID = $_;
+				my $transDesc = $transID{$tID}{'transDesc'};
+				my $transDate = $transID{$tID}{'transDate'};
+				my $fid = $transID{$tID}{'FID'};
+				my $aid = $transID{$tID}{'AID'};
+				my $transDateEpoch = $transID{$tID}{'transDateEpoch'};
+				my $transAmount = $transID{$tID}{'transAmount'};
+				##########
+				if ($transDesc =~ $mapCheck)
+				{
+					print "MATCH :: $transDesc :: $mapCheck\n";
+					foreach (@{$amntCache->{$curAcnt}{$mapCheck}})
+					{
+						my $expectAmount = $_;
+						if ($expectAmount eq "0.00") { $expectAmount = "";}
+						##########
+						print "\tEXPECT :: $expectAmount :: $transDesc:: $transDate\n";
+						##########
+						# my $expectAmount = $amntCache->{$curAcnt}{$mapCheck};
+						#####
+						print "\tTRANS :: $transDesc :: $transAmount :: $expectAmount\n";
+						#####
+						if (substr($transAmount,0,1) eq "-") { $transAmount = substr($transAmount,1);}
+						#####
+						$validMap = 0;
+						#####
+						if ((!$expectAmount) && ($transDesc =~ $mapCheck)) { $validMap = 1;}
+						if (($expectAmount) && (($transDesc =~ $mapCheck) && ($transAmount == $expectAmount))) { $validMap = 1;}
+						#####
+						if ($validMap)
+						{
+							# print "Valid Entry :: $validMap :: ($transDesc =~ $mapCheck) || ($transAmount == $expectAmount)\n";
+							#########
+							my ($sec, $min, $hour, $day,$month,$year) = (localtime($transDateEpoch))[0,1,2,3,4,5];
+							$month ++;
+							my $dbDate = ($year + 1900) . "-" . $month . "-" . $day;
+							# my $transID = &generateID($curAcnt . "_" . $dbDate . "_" . $transAmount);
+							#########
+							my $transID = $aid . "&&" . $fid . "&&" . $transAmount;
+							# print "\t\tTID :: $tID :: $transDesc :: $transDate ($dbDate) :: $transAmount :: $transID\n";
+							#########
+							$transCheck;
+							if ($checkPaymentExist->execute($curAcnt,$transID))
+							{
+								while (my ($transCheckTMP) = $checkPaymentExist->fetchrow_array())
+								{
+									$transCheck = $transCheckTMP;
+									# print "*** CHK :: $transCheckTMP ($curAcnt :: $transID) ***\n";
+								}
+							}
+							#########
+							if (!$transCheck)
+							{
+								print "INSERT TRANS :: $mapCheck :: $expectAmount ($validMap)\n";
+								print "\tACNT :: $curAcnt\n";
+								print "\tAMNT : $transAmount\n";
+								print "\tDATE : $dbDate\n";
+								print "\ttID : $transID ($aid :: $fid :: $transAmount)\n";
+								$insertPaymentData->execute($curAcnt, $transAmount, $dbDate, $transID);
+								$updatePaymentMapping->execute($curAcnt, $aid, $fid);
+							}
+						}
+						else
+						{
+							# print "*** NOT Valid Entry :: $validMap :: ($transDesc =~ $mapCheck) || ($transAmount == $expectAmount)\n";
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+################################################################################
+sub generateID
+{
+	my ($salt) = @_;
+	# $salt = "";
+	#####
+	$newID = "";
+	#####
+	if (!$salt)
+	{
+		$ctx = Digest::MD5->new;
+		####
+		my $rand1 = rand(10) + 1;
+		$ctx->add($rand1);
+		$salt1 = $ctx->hexdigest;
+		####
+		my $rand2 = rand(10) + 1;
+		$ctx->add($rand2);
+		$salt2 = $ctx->hexdigest;
+		####
+		my $rand3 = rand(10) + 1;
+		$ctx->add($rand3);
+		$salt3 = $ctx->hexdigest;
+		####
+		my $rand4 = rand(10) + 1;
+		$ctx->add($rand4);
+		$salt4 = $ctx->hexdigest;
+		####
+		$salt = $salt1 . "-" . $salt2 . "-" . $salt3 . "-" . $salt4;
+	}
+	##########
+	$d = Crypt::Digest->new('SHA1');
+	$d->add($salt);
+	$newHash  = $d->hexdigest;
+	##########
+	for ($x = 0;$x<=9;$x++)
+	{
+		if ($newID)
+		{
+			$newID .= "-";
+		}
+		$newPt = substr($newHash, $x * 4, 4);
+		$newID .= $newPt;
+	}
+	#####
+	return $newID;
+}
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+sub sqlInit
+{
+	$getMappingData_SQL= "SELECT accountID, mappingString, expectedAmount FROM BucketTracker.transMapping ORDER BY mappingString, expectedAmount;";
+	if (!($getMappingData = $dbh->prepare($getMappingData_SQL)))
+	{
+		print "Unable to prepare :: $getMappingData_SQL\n";
+		exit;
+	}
+	$getTransactionData_SQL = "SELECT AccountID, FID, transDate, transDateEpoch, transDesc, transAmount FROM zhBudget.TransData WHERE debtAccount IS NULL AND (month(from_unixtime(TransDateEpoch)) = month(now()) AND year(from_unixtime(TransDateEpoch)) = year(now())) AND TransType != 'DIRECTDEP: Direct deposit' AND TransType != 'XFER: Transfer'  AND accountID LIKE '%3951' ORDER BY transDateEpoch DESC";
+	if (!($getTransactionData = $dbh->prepare($getTransactionData_SQL)))
+	{
+		print "Unable to prepare :: $getTransactionData_SQL\n";
+		exit;
+	}
+	$checkPaymentExist_SQL = "SELECT COUNT(*) FROM BucketTracker.AccountMonthlyPayments WHERE accountID = ? AND payID = ?";
+	if (!($checkPaymentExist = $dbh->prepare($checkPaymentExist_SQL)))
+	{
+		print "Unable to prepare :: $checkPaymentExist_SQL\n";
+		exit;
+	}
+	$insertPaymentData_SQL = "INSERT INTO BucketTracker.AccountMonthlyPayments (accountID, payAmount, payDate, payID) VALUES (?,?,?,?)";
+	if (!($insertPaymentData = $dbh->prepare($insertPaymentData_SQL)))
+	{
+		print "Unable to prepare :: $insertPaymentData_SQL\n";
+		exit;
+	}
+	$updatePaymentMapping_SQL = "UPDATE zhBudget.TransData SET debtAccount = ?, debtMatch = NOW() WHERE AccountID = ? AND FID = ?";
+	if (!($updatePaymentMapping = $dbh->prepare($updatePaymentMapping_SQL)))
+	{
+		print "Unable to prepare :: $updatePaymentMapping_SQL\n";
+		exit;
+	}
+}
+################################################################################
+sub dbInit
+{
+	$database_port = "3306";
+	#########################
+	$database      = $config->{'dbName'};
+    $database_srvr = $config->{'dbServer'};
+    $database_user = $config->{'dbUser'};
+    $database_pass = $config->{'dbPass'};
+    #########################
+	my $driver = "mysql";
+	#####
+	my $dsn = "DBI:$driver:database=$database:host=$database_srvr;port=$database_port";
+	#####
+	#my %attribs->{"RaiseError"} = 1;
+	#####
+	if (!($dbh = DBI->connect($dsn, $database_user, $database_pass,{PrintError => 1,RaiseError => 1,AutoCommit => 1,ShowErrorStatement=>1}))) {print "Error connecting to $database_srvr.\n"; exit; };
+}
+################################################################################
+################################################################################
+sub readConfig
+{
+	opendir (DIR, "/config");
+	my @configFiles = readdir(DIR);
+	closedir (DIR);
+	foreach (@configFiles)
+	{
+    	my $configKey = $_;
+    	open(IN, "/config/" . $configKey);
+    	my $configValue = <IN>;
+    	close (IN);
+    	$config->{$configKey} = $configValue;
+	}
+}
