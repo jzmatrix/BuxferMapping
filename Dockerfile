@@ -23,5 +23,5 @@ RUN chmod 0600 /root/.ssh/authorized_keys && \
 ADD script/mapPayments /opt/buxfer/mapPayments
 RUN chmod 755 /opt/buxfer/mapPayments
 ################################################################################
-# CMD ["/opt/getAccountData"]   # Used when deployed
-CMD [ "/opt/startServices.sh" ] # Only used for dev and testing
+CMD ["/opt/buxfer/getAccountData"]   # Used when deployed
+# CMD [ "/opt/startServices.sh" ] # Only used for dev and testing

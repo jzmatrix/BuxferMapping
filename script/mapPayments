@@ -16,9 +16,9 @@ $amntCache;
 ################################################################################
 &readConfig;
 ################################################################################
-# print "**********************************************\n";
-# print "CONFIG :: " . Dumper($config) . "\n";
-# print "**********************************************\n";
+print "**********************************************\n";
+print "CONFIG :: " . Dumper($config) . "\n";
+print "**********************************************\n";
 ################################################################################
 &dbInit;
 &sqlInit;
@@ -30,10 +30,7 @@ if ($getMappingData->execute())
 		push(@{$mapData{$accountID}}, $mapString);
 		push(@{$amntCache->{$accountID}{$mapString}}, $expectedAmount);
 		##########
-		#if ($mapString =~ 'AT&T')
-		#{
-		# print "MAPPING :: $accountID :: $mapString :: $expectedAmount\n";
-		#}
+		print "MAPPING :: $accountID :: $mapString :: $expectedAmount\n";
 		##########
 		#$amntCache->{$accountID}{$mapString} = $expectedAmount;
 		my $chk = $acntCache->{$accountID};
@@ -73,7 +70,6 @@ foreach (@acntList)
 {
 	my $curAcnt = $_;
 	my $doCheck = 1;
-	# if ($curAcnt eq "6378-ee8a-e0c4-9544-2843-db87-80e0-268b-1e1b-9e96") { $doCheck = 1;}
 	if ($doCheck)
 	{
 		foreach (@{$mapData{$curAcnt}})
