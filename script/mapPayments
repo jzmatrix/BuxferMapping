@@ -44,7 +44,7 @@ if ($getMappingData->execute())
 ################################################################################
 if ($getTransactionData->execute())
 {
-	while (my ($aid, $fid, $transDate, $transDateEpoch, $transDesc, $transAmount) = $getTransactionData->fetchrow_array())
+	while (my ($aid, $fid, $transDate, $transDateEpoch, $transDesc, $transAmount,$transTags,$transType,$transMatched) = $getTransactionData->fetchrow_array())
 	{
 		my $itemKey = $aid . "_" . $fid;
 		$transID{$itemKey}{'transDate'} = $transDate;
@@ -53,6 +53,9 @@ if ($getTransactionData->execute())
 		$transID{$itemKey}{'transDateEpoch'} = $transDateEpoch;
 		$transID{$itemKey}{'transDesc'} = $transDesc;
 		$transID{$itemKey}{'transAmount'} = sprintf('%.2f', $transAmount);
+		$transID{$itemKey}{'Tags'} = $transTags;
+		$transID{$itemKey}{'Type'} = $transType;
+		$transID{$itemKey}{'Matched'} = $transMatched;
 		#########
 		print "\tLOAD :: $itemKey :: $transDesc :: $transAmount :: " . $transID{$itemKey}{'transAmount'} . "\n";
 		#########
@@ -62,6 +65,29 @@ if ($getTransactionData->execute())
 		{
 			$transCache{$itemKey} = 1;
 			push(@transList, $itemKey);
+		}
+	}
+}
+################################################################################
+foreach (@transList)
+{
+	my $tID = $_;
+	my $transDesc = $transID{$tID}{'transDesc'};
+	my $transDate = $transID{$tID}{'transDate'};
+	my $fid = $transID{$tID}{'FID'};
+	my $aid = $transID{$tID}{'AID'};
+	my $transDateEpoch = $transID{$tID}{'transDateEpoch'};
+	my $transAmount = $transID{$tID}{'transAmount'};
+	my $transType = $transID{$tID}{'Type'};
+	my $transMatched = $transID{$tID}{'Matched'};
+	##########
+	if ($transType eq "income")
+	{
+		print "INCOME :: $transDate :: $transDesc :: $transAmount :: $transMatched\n";
+		if (!$transMatched)
+		{
+			$addPaycheck->execute($transAmount, $transDate, $fid);
+			$updateTransMapping->execute($fid, $fid, $aid);
 		}
 	}
 }
@@ -89,65 +115,69 @@ foreach (@acntList)
 				my $aid = $transID{$tID}{'AID'};
 				my $transDateEpoch = $transID{$tID}{'transDateEpoch'};
 				my $transAmount = $transID{$tID}{'transAmount'};
+				my $transType = $transID{$tID}{'Type'};
 				##########
-				if ($transDesc =~ $mapCheck)
+				if ($transType ne "income")
 				{
-					print "MATCH :: $transDesc :: $mapCheck\n";
-					foreach (@{$amntCache->{$curAcnt}{$mapCheck}})
+					if ($transDesc =~ $mapCheck)
 					{
-						my $expectAmount = $_;
-						if ($expectAmount eq "0.00") { $expectAmount = "";}
-						##########
-						print "\tEXPECT :: $expectAmount :: $transDesc:: $transDate\n";
-						##########
-						# my $expectAmount = $amntCache->{$curAcnt}{$mapCheck};
-						#####
-						print "\tTRANS :: $transDesc :: $transAmount :: $expectAmount\n";
-						#####
-						if (substr($transAmount,0,1) eq "-") { $transAmount = substr($transAmount,1);}
-						#####
-						$validMap = 0;
-						#####
-						if ((!$expectAmount) && ($transDesc =~ $mapCheck)) { $validMap = 1;}
-						if (($expectAmount) && (($transDesc =~ $mapCheck) && ($transAmount == $expectAmount))) { $validMap = 1;}
-						#####
-						if ($validMap)
+						print "MATCH :: $transDesc :: $mapCheck\n";
+						foreach (@{$amntCache->{$curAcnt}{$mapCheck}})
 						{
-							# print "Valid Entry :: $validMap :: ($transDesc =~ $mapCheck) || ($transAmount == $expectAmount)\n";
-							#########
-							my ($sec, $min, $hour, $day,$month,$year) = (localtime($transDateEpoch))[0,1,2,3,4,5];
-							$month ++;
-							my $dbDate = ($year + 1900) . "-" . $month . "-" . $day;
-							# my $transID = &generateID($curAcnt . "_" . $dbDate . "_" . $transAmount);
-							#########
-							my $transID = $aid . "&&" . $fid . "&&" . $transAmount;
-							# print "\t\tTID :: $tID :: $transDesc :: $transDate ($dbDate) :: $transAmount :: $transID\n";
-							#########
-							$transCheck;
-							if ($checkPaymentExist->execute($curAcnt,$transID))
+							my $expectAmount = $_;
+							if ($expectAmount eq "0.00") { $expectAmount = "";}
+							##########
+							print "\tEXPECT :: $expectAmount :: $transDesc:: $transDate\n";
+							##########
+							# my $expectAmount = $amntCache->{$curAcnt}{$mapCheck};
+							#####
+							print "\tTRANS :: $transDesc :: $transAmount :: $expectAmount\n";
+							#####
+							if (substr($transAmount,0,1) eq "-") { $transAmount = substr($transAmount,1);}
+							#####
+							$validMap = 0;
+							#####
+							if ((!$expectAmount) && ($transDesc =~ $mapCheck)) { $validMap = 1;}
+							if (($expectAmount) && (($transDesc =~ $mapCheck) && ($transAmount == $expectAmount))) { $validMap = 1;}
+							#####
+							if ($validMap)
 							{
-								while (my ($transCheckTMP) = $checkPaymentExist->fetchrow_array())
+								# print "Valid Entry :: $validMap :: ($transDesc =~ $mapCheck) || ($transAmount == $expectAmount)\n";
+								#########
+								my ($sec, $min, $hour, $day,$month,$year) = (localtime($transDateEpoch))[0,1,2,3,4,5];
+								$month ++;
+								my $dbDate = ($year + 1900) . "-" . $month . "-" . $day;
+								# my $transID = &generateID($curAcnt . "_" . $dbDate . "_" . $transAmount);
+								#########
+								my $transID = $aid . "&&" . $fid . "&&" . $transAmount;
+								# print "\t\tTID :: $tID :: $transDesc :: $transDate ($dbDate) :: $transAmount :: $transID\n";
+								#########
+								$transCheck;
+								if ($checkPaymentExist->execute($curAcnt,$transID))
 								{
-									$transCheck = $transCheckTMP;
-									# print "*** CHK :: $transCheckTMP ($curAcnt :: $transID) ***\n";
+									while (my ($transCheckTMP) = $checkPaymentExist->fetchrow_array())
+									{
+										$transCheck = $transCheckTMP;
+										# print "*** CHK :: $transCheckTMP ($curAcnt :: $transID) ***\n";
+									}
+								}
+								#########
+								if (!$transCheck)
+								{
+									print "INSERT TRANS :: $mapCheck :: $expectAmount ($validMap)\n";
+									print "\tACNT :: $curAcnt\n";
+									print "\tAMNT : $transAmount\n";
+									print "\tDATE : $dbDate\n";
+									print "\ttID : $transID ($aid :: $fid :: $transAmount)\n";
+									$insertPaymentData->execute($curAcnt, $transAmount, $dbDate, $transID);
+									$updatePaymentMapping->execute($curAcnt, $aid, $fid);
+									$updateTransMapping->execute($curAcnt, $fid, $aid);
 								}
 							}
-							#########
-							if (!$transCheck)
+							else
 							{
-								print "INSERT TRANS :: $mapCheck :: $expectAmount ($validMap)\n";
-								print "\tACNT :: $curAcnt\n";
-								print "\tAMNT : $transAmount\n";
-								print "\tDATE : $dbDate\n";
-								print "\ttID : $transID ($aid :: $fid :: $transAmount)\n";
-								$insertPaymentData->execute($curAcnt, $transAmount, $dbDate, $transID);
-								$updatePaymentMapping->execute($curAcnt, $aid, $fid);
-								$updateTransMapping->execute($curAcnt, $fid, $aid);
+								print "*** NOT Valid Entry :: $validMap :: ($transDesc =~ $mapCheck) || ($transAmount == $expectAmount)\n";
 							}
-						}
-						else
-						{
-							print "*** NOT Valid Entry :: $validMap :: ($transDesc =~ $mapCheck) || ($transAmount == $expectAmount)\n";
 						}
 					}
 				}
@@ -227,7 +257,8 @@ sub sqlInit
 									transDescription as transDesc,
 									transAmount,
 									transTags,
-									transType
+									transType,
+									transMatched
 								FROM
 									buxfer.Transactions
 								WHERE
@@ -264,6 +295,12 @@ sub sqlInit
 	if (!($updateTransMapping = $dbh->prepare($updateTransMapping_SQL)))
  	{
  		print "Unable to prepare :: $updateTransMapping_SQL\n";
+ 		exit;
+ 	}
+	$addPaycheck_SQL = "INSERT INTO BucketTracker.Paycheck (checkAmount, checkDate, checkID) VALUES (?,?,?)";
+	if (!($addPaycheck = $dbh->prepare($addPaycheck_SQL)))
+ 	{
+ 		print "Unable to prepare :: $addPaycheck_SQL\n";
  		exit;
  	}
 }
