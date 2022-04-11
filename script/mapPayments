@@ -142,6 +142,7 @@ foreach (@acntList)
 								print "\ttID : $transID ($aid :: $fid :: $transAmount)\n";
 								$insertPaymentData->execute($curAcnt, $transAmount, $dbDate, $transID);
 								$updatePaymentMapping->execute($curAcnt, $aid, $fid);
+								$updateTransMapping->execute($curAcnt, $fid, $aid);
 							}
 						}
 						else
@@ -257,6 +258,12 @@ sub sqlInit
  	if (!($updatePaymentMapping = $dbh->prepare($updatePaymentMapping_SQL)))
  	{
  		print "Unable to prepare :: $updatePaymentMapping_SQL\n";
+ 		exit;
+ 	}
+	$updateTransMapping_SQL = "UPDATE buxfer.Transactions SET transMatched = ? WHERE transID = ? AND transAccountID = ?"
+	if (!($updateTransMapping = $dbh->prepare($updateTransMapping_SQL)))
+ 	{
+ 		print "Unable to prepare :: $updateTransMapping_SQL\n";
  		exit;
  	}
 }
