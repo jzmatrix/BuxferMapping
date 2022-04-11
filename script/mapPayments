@@ -260,7 +260,7 @@ sub sqlInit
  		print "Unable to prepare :: $updatePaymentMapping_SQL\n";
  		exit;
  	}
-	$updateTransMapping_SQL = "UPDATE buxfer.Transactions SET transMatched = ? WHERE transID = ? AND transAccountID = ?"
+	$updateTransMapping_SQL = "UPDATE buxfer.Transactions SET transMatched = ? WHERE transID = ? AND transAccountID = ?";
 	if (!($updateTransMapping = $dbh->prepare($updateTransMapping_SQL)))
  	{
  		print "Unable to prepare :: $updateTransMapping_SQL\n";
