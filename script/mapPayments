@@ -320,6 +320,8 @@ sub dbInit
 	#####
 	#my %attribs->{"RaiseError"} = 1;
 	#####
+	print "DEBUG :: $database_user\n";
+	#####
 	if (!($dbh = DBI->connect($dsn, $database_user, $database_pass,{PrintError => 1,RaiseError => 1,AutoCommit => 1,ShowErrorStatement=>1}))) {print "Error connecting to $database_srvr.\n"; exit; };
 }
 ################################################################################
